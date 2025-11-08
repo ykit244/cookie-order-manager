@@ -10,8 +10,17 @@
   <style>
     body { margin: 0; padding: 0; overscroll-behavior-y: contain; }
     ::-webkit-scrollbar { width: 0px; background: transparent; }
-    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-    .calendar-day { aspect-ratio: 1; min-height: 60px; cursor: pointer; }
+    .calendar-grid { 
+      display: grid; 
+      grid-template-columns: repeat(7, 1fr); 
+      gap: 4px;
+    }
+    .calendar-day { 
+      aspect-ratio: 1; 
+      min-height: 60px; 
+      cursor: pointer;
+      overflow: hidden;
+    }
     .login-container {
       min-height: 100vh;
       display: flex;
@@ -29,6 +38,15 @@
       height: 100%;
       background: linear-gradient(90deg, #ec4899, #f472b6);
       transition: width 0.3s ease;
+    }
+    /* 修复日历头部对齐 */
+    .calendar-header {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .calendar-header > div {
+      text-align: center;
     }
   </style>
 </head>
@@ -277,23 +295,28 @@
         const customerData = { ...customer, id, updatedAt: new Date().toISOString() };
         await setDoc(ref, customerData);
         
-        // 更新所有相关订单的客户信息（问题7的解决方案）
+        // 修复问题4：更新所有年份的相关订单
         if (customer.id) {
-          const ordersToUpdate = orders.filter(o => o.customerId === customer.id);
           const batch = writeBatch(db);
+          const allYears = Object.keys(yearlyData);
           
-          ordersToUpdate.forEach(order => {
-            const orderRef = doc(db, 'users', user.uid, 'orders', String(currentYear), 'items', order.id);
-            batch.update(orderRef, {
-              customerName: customer.name,
-              customerPhone: customer.phone,
-              deliveryAddress: customer.address || order.deliveryAddress
+          for (const year of allYears) {
+            const yearOrdersRef = collection(db, 'users', user.uid, 'orders', String(year), 'items');
+            const snapshot = await getDocs(yearOrdersRef);
+            
+            snapshot.forEach(doc => {
+              const orderData = doc.data();
+              if (orderData.customerId === customer.id) {
+                batch.update(doc.ref, {
+                  customerName: customer.name,
+                  customerPhone: customer.phone,
+                  deliveryAddress: customer.address || orderData.deliveryAddress
+                });
+              }
             });
-          });
-          
-          if (ordersToUpdate.length > 0) {
-            await batch.commit();
           }
+          
+          await batch.commit();
         }
       };
 
@@ -307,7 +330,6 @@
         const id = product.id || `product_${Date.now()}`;
         const ref = doc(db, 'users', user.uid, 'products', id);
         await setDoc(ref, { ...product, id, updatedAt: new Date().toISOString() });
-        // 注意：不更新已有订单中的产品信息（问题8的要求）
       };
 
       const deleteProduct = async (id) => {
@@ -341,7 +363,7 @@
             <h1 className="text-3xl font-bold text-gray-800 mb-2">饼干订单管理</h1>
             <p className="text-gray-600 mb-4">妈妈的手工饼干订单小助手</p>
             <div className="text-sm text-gray-500 bg-blue-50 p-3 rounded-lg mb-4">
-              <p className="font-medium text-blue-800 mb-2">为什么需要登录？</p>
+              <p className="font-medium text-blue-800 mb-2">为什么需要登录?</p>
               <ul className="text-left space-y-1">
                 <li>• 数据安全存储在云端</li>
                 <li>• 多设备同步使用</li>
@@ -360,7 +382,7 @@
       if (!show) return null;
       
       return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-lg max-w-sm w-full p-6">
             <h3 className="text-lg font-bold mb-2">{title}</h3>
             <p className="text-gray-600 mb-6">{message}</p>
@@ -397,9 +419,8 @@
       const [pendingStatusChange, setPendingStatusChange] = useState(null);
       const [selectedCalendarOrders, setSelectedCalendarOrders] = useState(null);
       
-      // 过滤状态（问题9）
       const [filterStatus, setFilterStatus] = useState('all');
-      const [filterDateType, setFilterDateType] = useState('all'); // all, past, upcoming
+      const [filterDateType, setFilterDateType] = useState('all');
 
       const [orderForm, setOrderForm] = useState({
         customerName: '', customerPhone: '', products: [{ name: '', size: '', quantity: 1, price: 0 }],
@@ -422,7 +443,6 @@
 
       // 过滤订单
       const filteredOrders = data.orders.filter(o => {
-        // 搜索过滤
         if (searchTerm) {
           const matchSearch = (
             o.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -432,12 +452,10 @@
           if (!matchSearch) return false;
         }
         
-        // 状态过滤
         if (filterStatus !== 'all' && o.status !== filterStatus) {
           return false;
         }
         
-        // 日期过滤
         if (filterDateType !== 'all') {
           const today = new Date().toISOString().split('T')[0];
           if (filterDateType === 'past' && (!o.deliveryDate || o.deliveryDate >= today)) {
@@ -455,17 +473,16 @@
         return new Date(a.deliveryDate) - new Date(b.deliveryDate);
       });
 
-      // 统计数据（问题12）
+      // 修复问题6：只计算已交付状态的营业额
       const stats = {
         total: data.orders.length,
         pending: data.orders.filter(o => o.status === 'pending').length,
         processing: data.orders.filter(o => o.status === 'processing').length,
         completed: data.orders.filter(o => o.status === 'completed').length,
         delivered: data.orders.filter(o => o.status === 'delivered').length,
-        revenue: data.orders.filter(o => o.status === 'completed' || o.status === 'delivered').reduce((sum, o) => sum + (o.totalAmount || 0), 0)
+        revenue: data.orders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + (o.totalAmount || 0), 0)
       };
 
-      // 已交付产品统计
       const deliveredProducts = {};
       data.orders.filter(o => o.status === 'delivered').forEach(order => {
         order.products?.forEach(p => {
@@ -489,11 +506,6 @@
       };
 
       const editOrder = (order) => {
-        // 问题5：已交付订单不能编辑
-        if (order.status === 'delivered') {
-          alert('已交付的订单不能编辑');
-          return;
-        }
         setEditingOrder(order);
         setOrderForm(order);
         setShowOrderForm(true);
@@ -505,7 +517,7 @@
           return;
         }
         
-        // 问题4：转换为已交付时需要确认
+        // 修复问题2：转换为已交付时需要确认
         if (orderForm.status === 'delivered' && editingOrder && editingOrder.status !== 'delivered') {
           setPendingStatusChange({ ...orderForm, id: editingOrder?.id, createdAt: editingOrder?.createdAt || new Date().toISOString() });
           setShowConfirmDialog(true);
@@ -657,7 +669,6 @@
         setCalendarDate(newDate);
       };
 
-      // 问题2：点击日历中的订单显示详情
       const showOrdersForDate = (day) => {
         const orders = getOrdersForDate(day);
         if (orders.length > 0) {
@@ -718,7 +729,6 @@
                   <p className="text-xs opacity-90">{user.displayName || user.email}</p>
                 </div>
               </div>
-              {/* 问题10：设置按钮移到右上角 */}
               <div className="flex items-center gap-2">
                 <button onClick={() => setShowYearSelector(!showYearSelector)} className="bg-white bg-opacity-20 px-3 py-2 rounded-lg text-sm font-medium">
                   {data.currentYear}年
@@ -768,8 +778,9 @@
                     </div>
                   </div>
                   
-                  <button onClick={signOut} className="w-full py-3 bg-red-500 text-white rounded-lg font-medium">
-                    登出账号
+                  <button onClick={signOut} className="w-full py-3 bg-red-500 text-white rounded-lg font-medium flex items-center justify-center gap-2">
+                    <Icons.LogOut size={20} />
+                    退出登录
                   </button>
                 </div>
               </div>
@@ -778,30 +789,26 @@
 
           {/* 年份选择器 */}
           {showYearSelector && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg max-w-sm w-full p-4">
-                <h3 className="text-lg font-bold mb-4">选择年份</h3>
-                <div className="space-y-2 max-h-60 overflow-y-auto mb-4">
-                  {Object.keys(data.yearlyData).sort((a, b) => b - a).map(y => (
-                    <button key={y} onClick={() => { data.setCurrentYear(parseInt(y)); setShowYearSelector(false); }}
-                      className={`w-full p-3 rounded-lg text-left font-medium ${parseInt(y) === data.currentYear ? 'bg-pink-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                      {y}年
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowYearSelector(false)} className="flex-1 py-2 bg-gray-200 rounded-lg font-medium">取消</button>
-                  <button onClick={createNewYear} className="flex-1 py-2 bg-pink-500 text-white rounded-lg font-medium">新建年份</button>
-                </div>
+            <div className="absolute top-16 right-4 bg-white rounded-lg shadow-lg p-3 z-20">
+              <div className="space-y-1">
+                {Object.keys(data.yearlyData).sort((a, b) => b - a).map(y => (
+                  <button key={y} onClick={() => { data.setCurrentYear(parseInt(y)); setShowYearSelector(false); }}
+                    className={`block w-full text-left px-4 py-2 rounded ${data.currentYear === parseInt(y) ? 'bg-pink-100 text-pink-700 font-medium' : 'hover:bg-gray-50'}`}>
+                    {y}年 {data.yearlyData[y].settled && '(已结算)'}
+                  </button>
+                ))}
+                <button onClick={createNewYear} className="w-full text-left px-4 py-2 text-pink-600 hover:bg-pink-50 rounded font-medium">
+                  + 创建新年份
+                </button>
               </div>
             </div>
           )}
 
-          {/* 确认对话框（问题4） */}
+          {/* 修复问题2：确认对话框 z-index 提高到100 */}
           <ConfirmDialog
             show={showConfirmDialog}
             title="确认交付"
-            message="是否确定产品已交付？订单交付后将无法再编辑。"
+            message="确认订单已交付给客户？"
             onConfirm={confirmDelivery}
             onCancel={() => {
               setShowConfirmDialog(false);
@@ -809,30 +816,35 @@
             }}
           />
 
-          {/* 日历订单详情（问题2） */}
+          {/* 日历订单详情弹窗 */}
           {selectedCalendarOrders && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-4">
+              <div className="bg-white w-full sm:max-w-lg sm:rounded-lg rounded-t-lg max-h-[90vh] overflow-y-auto">
                 <div className="sticky top-0 bg-white border-b px-4 py-3 flex justify-between items-center">
-                  <h3 className="font-bold">订单详情</h3>
+                  <h2 className="text-xl font-bold">订单详情</h2>
                   <button onClick={() => setSelectedCalendarOrders(null)} className="text-gray-500">
                     <Icons.X size={24} />
                   </button>
                 </div>
                 <div className="p-4 space-y-3">
                   {selectedCalendarOrders.map(order => (
-                    <div key={order.id} className="bg-gray-50 p-3 rounded-lg">
-                      <div className="font-bold">{order.customerName}</div>
-                      <div className="text-sm text-gray-600">{order.customerPhone}</div>
-                      <div className="mt-2 text-sm">
+                    <div key={order.id} className="bg-gray-50 p-4 rounded-lg">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <div className="font-bold text-lg">{order.customerName}</div>
+                          <div className="text-sm text-gray-600">{order.customerPhone}</div>
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded ${statusColors[order.status]}`}>
+                          {statusLabels[order.status]}
+                        </span>
+                      </div>
+                      <div className="space-y-1 text-sm mb-2">
                         {order.products?.map((p, i) => (
                           <div key={i}>{p.name} ({p.size}) x {p.quantity}</div>
                         ))}
                       </div>
-                      <div className="mt-2 flex justify-between items-center">
-                        <span className={`text-xs px-2 py-1 rounded ${statusColors[order.status]}`}>
-                          {statusLabels[order.status]}
-                        </span>
+                      <div className="flex justify-between items-center pt-2 border-t">
+                        <span className="text-sm text-gray-600">交付: {order.deliveryDate}</span>
                         <span className="font-bold text-pink-600">RM {order.totalAmount?.toFixed(2)}</span>
                       </div>
                     </div>
@@ -843,7 +855,7 @@
           )}
 
           <div className="p-4">
-            {/* 主页（问题12） */}
+            {/* 主页 */}
             {activeTab === 'home' && (
               <div className="space-y-4">
                 <h2 className="text-xl font-bold">统计概览</h2>
@@ -930,7 +942,7 @@
                   </button>
                 </div>
 
-                {/* 过滤面板（问题9） */}
+                {/* 过滤面板 */}
                 {showFilterPanel && (
                   <div className="mb-4 p-4 bg-white rounded-lg shadow space-y-3">
                     <div>
@@ -976,12 +988,15 @@
                             <div className="text-sm text-gray-600">{order.customerPhone}</div>
                           </div>
                           <div className="flex gap-2">
-                            <button onClick={() => editOrder(order)} className="text-blue-600 p-1" disabled={order.status === 'delivered'}>
+                            <button onClick={() => editOrder(order)} className="text-blue-600 p-1">
                               <Icons.Edit size={18} />
                             </button>
-                            <button onClick={() => confirm('确定删除?') && data.deleteOrder(order.id)} className="text-red-600 p-1">
-                              <Icons.Trash size={18} />
-                            </button>
+                            {/* 修复问题5：只有待处理的订单可以删除 */}
+                            {order.status === 'pending' && (
+                              <button onClick={() => confirm('确定删除?') && data.deleteOrder(order.id)} className="text-red-600 p-1">
+                                <Icons.Trash size={18} />
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="space-y-1 text-sm mb-2">
@@ -1005,7 +1020,7 @@
               </div>
             )}
 
-            {/* 日历页 */}
+            {/* 修复问题1：日历页面 */}
             {activeTab === 'calendar' && (
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="flex justify-between items-center mb-4">
@@ -1013,7 +1028,8 @@
                   <h2 className="text-xl font-bold">{calendarDate.getFullYear()}年 {calendarDate.getMonth() + 1}月</h2>
                   <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded"><Icons.ChevronRight size={24} /></button>
                 </div>
-                <div className="calendar-grid mb-2">
+                {/* 使用修复的日历头部 */}
+                <div className="calendar-header mb-2">
                   {['日', '一', '二', '三', '四', '五', '六'].map(d => (
                     <div key={d} className="text-center text-sm font-medium text-gray-600 py-2">{d}</div>
                   ))}
@@ -1104,98 +1120,108 @@
           </div>
 
           {/* 底部导航 */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t">
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg">
             <div className="flex justify-around py-2">
-              {[
-                ['home', Icons.Home, '主页'],
-                ['orders', Icons.Package, '订单'],
-                ['calendar', Icons.Calendar, '日历'],
-                ['customers', Icons.Users, '客户'],
-                ['products', Icons.Package, '产品']
-              ].map(([tab, Icon, label]) => (
-                <button key={tab} onClick={() => setActiveTab(tab)}
-                  className={`flex flex-col items-center py-2 px-4 ${activeTab === tab ? 'text-pink-600' : 'text-gray-600'}`}>
-                  <Icon size={24} /><span className="text-xs mt-1">{label}</span>
-                </button>
-              ))}
+              <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center p-2 ${activeTab === 'home' ? 'text-pink-600' : 'text-gray-600'}`}>
+                <Icons.Home size={24} /><span className="text-xs mt-1">主页</span>
+              </button>
+              <button onClick={() => setActiveTab('orders')} className={`flex flex-col items-center p-2 ${activeTab === 'orders' ? 'text-pink-600' : 'text-gray-600'}`}>
+                <Icons.Package size={24} /><span className="text-xs mt-1">订单</span>
+              </button>
+              <button onClick={addOrder} className="flex flex-col items-center p-2 -mt-4">
+                <div className="bg-pink-500 text-white rounded-full p-3 shadow-lg"><Icons.Plus size={28} /></div>
+              </button>
+              <button onClick={() => setActiveTab('calendar')} className={`flex flex-col items-center p-2 ${activeTab === 'calendar' ? 'text-pink-600' : 'text-gray-600'}`}>
+                <Icons.Calendar size={24} /><span className="text-xs mt-1">日历</span>
+              </button>
+              <button onClick={() => setActiveTab('customers')} className={`flex flex-col items-center p-2 ${activeTab === 'customers' ? 'text-pink-600' : 'text-gray-600'}`}>
+                <Icons.Users size={24} /><span className="text-xs mt-1">客户</span>
+              </button>
             </div>
           </div>
-
-          {/* 浮动添加按钮 */}
-          {(activeTab === 'orders' || activeTab === 'customers' || activeTab === 'products') && (
-            <button onClick={() => activeTab === 'orders' ? addOrder() : activeTab === 'customers' ? addCustomer() : addProduct()}
-              className="fixed right-4 bottom-20 bg-pink-500 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center">
-              <Icons.Plus size={28} />
-            </button>
-          )}
 
           {/* 订单表单 */}
           {showOrderForm && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50">
               <div className="bg-white w-full sm:max-w-2xl sm:rounded-lg rounded-t-lg max-h-[90vh] overflow-y-auto">
-                <div className="sticky top-0 bg-white border-b px-4 py-3 flex justify-between items-center">
+                <div className="sticky top-0 bg-white border-b px-4 py-3 flex justify-between items-center z-10">
                   <h2 className="text-xl font-bold">{editingOrder ? '编辑订单' : '新增订单'}</h2>
                   <button onClick={() => setShowOrderForm(false)} className="text-gray-500"><Icons.X size={24} /></button>
                 </div>
                 <div className="p-4 space-y-4">
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="font-medium mb-2 flex justify-between items-center">
-                      <span>客户信息</span>
-                      {data.customers.length > 0 && (
-                        <select onChange={(e) => { const c = data.customers.find(cu => cu.id === e.target.value); if (c) selectCustomerForOrder(c); }}
-                          className="text-sm px-2 py-1 border rounded">
-                          <option value="">选择客户</option>
-                          {data.customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.phone}</option>)}
-                        </select>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <input type="text" placeholder="客户姓名 *" value={orderForm.customerName}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">客户信息 *</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" placeholder="客户姓名" value={orderForm.customerName}
                         onChange={(e) => setOrderForm({ ...orderForm, customerName: e.target.value })}
-                        className="w-full px-3 py-2 border rounded" />
-                      <input type="tel" placeholder="客户电话 *" value={orderForm.customerPhone}
+                        className="px-3 py-2 border rounded" />
+                      <input type="tel" placeholder="电话" value={orderForm.customerPhone}
                         onChange={(e) => setOrderForm({ ...orderForm, customerPhone: e.target.value })}
-                        className="w-full px-3 py-2 border rounded" />
-                      <input type="text" placeholder="交付地址" value={orderForm.deliveryAddress}
-                        onChange={(e) => setOrderForm({ ...orderForm, deliveryAddress: e.target.value })}
-                        className="w-full px-3 py-2 border rounded" />
+                        className="px-3 py-2 border rounded" />
                     </div>
+                    <details className="mt-2">
+                      <summary className="text-sm text-pink-600 cursor-pointer">从客户列表选择</summary>
+                      <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                        {data.customers.map(c => (
+                          <div key={c.id} onClick={() => selectCustomerForOrder(c)}
+                            className="p-2 hover:bg-pink-50 rounded cursor-pointer text-sm">
+                            {c.name} - {c.phone}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
                   </div>
 
                   <div>
-                    <div className="font-medium mb-2">产品明细</div>
+                    <label className="block text-sm font-medium mb-2">地址</label>
+                    <input type="text" placeholder="交付地址" value={orderForm.deliveryAddress}
+                      onChange={(e) => setOrderForm({ ...orderForm, deliveryAddress: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">产品列表 *</label>
                     {orderForm.products.map((p, i) => (
-                      <div key={i} className="bg-gray-50 p-3 rounded-lg mb-2">
-                        <div className="flex justify-between mb-2">
+                      <div key={i} className="mb-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="flex justify-between items-center mb-2">
                           <span className="text-sm font-medium">产品 {i + 1}</span>
                           {orderForm.products.length > 1 && (
-                            <button onClick={() => removeOrderProduct(i)} className="text-red-600 text-sm"><Icons.Trash size={16} /></button>
+                            <button onClick={() => removeOrderProduct(i)} className="text-red-600 text-sm">删除</button>
                           )}
                         </div>
-                        {data.products.length > 0 && (
-                          <select onChange={(e) => { const pr = data.products.find(pd => pd.id === e.target.value); if (pr) selectProductForOrder(pr, i); }}
-                            className="w-full px-3 py-2 border rounded mb-2 text-sm">
-                            <option value="">选择产品</option>
-                            {data.products.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                          </select>
-                        )}
-                        <div className="grid grid-cols-2 gap-2 mb-2">
-                          <input type="text" placeholder="产品名称" value={p.name}
-                            onChange={(e) => updateOrderProduct(i, 'name', e.target.value)}
-                            className="px-3 py-2 border rounded text-sm" />
-                          <select value={p.size} onChange={(e) => { updateOrderProduct(i, 'size', e.target.value); updateProductPrice(i, e.target.value); }}
-                            className="px-3 py-2 border rounded text-sm">
-                            <option value="">选择大小</option>
-                            {p.name && data.products.find(pr => pr.name === p.name)?.sizes.map((s, idx) => <option key={idx} value={s.name}>{s.name}</option>)}
-                          </select>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <input type="number" placeholder="数量" value={p.quantity} min="1"
-                            onChange={(e) => updateOrderProduct(i, 'quantity', parseInt(e.target.value) || 1)}
-                            className="px-3 py-2 border rounded text-sm" />
-                          <input type="number" placeholder="单价" value={p.price} step="0.01"
-                            onChange={(e) => updateOrderProduct(i, 'price', parseFloat(e.target.value) || 0)}
-                            className="px-3 py-2 border rounded text-sm" />
+                        <div className="space-y-2">
+                          <div className="flex gap-2">
+                            <input type="text" placeholder="产品名称" value={p.name} list={`products-${i}`}
+                              onChange={(e) => updateOrderProduct(i, 'name', e.target.value)}
+                              className="flex-1 px-3 py-2 border rounded" />
+                            <datalist id={`products-${i}`}>
+                              {data.products.map(prod => (
+                                <option key={prod.id} value={prod.name} />
+                              ))}
+                            </datalist>
+                            <button onClick={() => {
+                              const prod = data.products.find(pr => pr.name === p.name);
+                              if (prod) selectProductForOrder(prod, i);
+                            }} className="px-3 py-2 bg-pink-500 text-white rounded text-sm">选择</button>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <select value={p.size} onChange={(e) => { updateOrderProduct(i, 'size', e.target.value); updateProductPrice(i, e.target.value); }}
+                              className="px-3 py-2 border rounded text-sm">
+                              <option value="">选择大小</option>
+                              {data.products.find(pr => pr.name === p.name)?.sizes.map((s, idx) => (
+                                <option key={idx} value={s.name}>{s.name}</option>
+                              ))}
+                            </select>
+                            <input type="number" placeholder="数量" value={p.quantity} min="1"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                updateOrderProduct(i, 'quantity', val === '' ? '' : parseInt(val));
+                              }}
+                              className="px-3 py-2 border rounded text-sm" />
+                            <input type="number" placeholder="单价" value={p.price} step="0.01"
+                              onChange={(e) => updateOrderProduct(i, 'price', parseFloat(e.target.value) || 0)}
+                              className="px-3 py-2 border rounded text-sm" />
+                          </div>
                           <div className="px-3 py-2 bg-white border rounded text-sm flex items-center justify-end font-medium">
                             RM {(p.price * p.quantity).toFixed(2)}
                           </div>
@@ -1360,7 +1386,14 @@
 
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      navigator.serviceWorker.register('/service-worker.js').then(
+        (registration) => {
+          console.log('Service Worker 注册成功:', registration);
+        },
+        (err) => {
+          console.log('Service Worker 注册失败:', err);
+        }
+      );
     }
   </script>
 </body>
