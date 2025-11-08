@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#ec4899">
+  <link rel="manifest" href="/manifest.json">
   <title>饼干订单管理</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -23,7 +24,6 @@
 <body>
   <div id="root"></div>
 
-  <!-- Firebase -->
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
     import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
@@ -42,10 +42,7 @@
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-
-    enableIndexedDbPersistence(db).catch((err) => {
-      console.log('离线持久化:', err.code);
-    });
+    enableIndexedDbPersistence(db).catch(() => {});
 
     window.firebase = {
       app, auth, db,
@@ -63,7 +60,6 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // 图标
     const Icon = ({ children, size = 20 }) => (
       <span style={{ display: 'inline-block', width: size, height: size, lineHeight: `${size}px` }}>
         {children}
@@ -87,22 +83,19 @@
       LogOut: (p) => <Icon {...p}>🚪</Icon>,
     };
 
-    // Firebase Ready Hook
     const useFirebaseReady = () => {
       const [ready, setReady] = useState(false);
       useEffect(() => {
-        if (window.firebase) {
-          setReady(true);
-        } else {
-          const handler = () => setReady(true);
-          window.addEventListener('firebaseReady', handler);
-          return () => window.removeEventListener('firebaseReady', handler);
+        if (window.firebase) setReady(true);
+        else {
+          const h = () => setReady(true);
+          window.addEventListener('firebaseReady', h);
+          return () => window.removeEventListener('firebaseReady', h);
         }
       }, []);
       return ready;
     };
 
-    // 认证
     const useAuth = () => {
       const [user, setUser] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -111,30 +104,25 @@
       useEffect(() => {
         if (!ready) return;
         const { auth, onAuthStateChanged } = window.firebase;
-        return onAuthStateChanged(auth, (user) => {
-          setUser(user);
-          setLoading(false);
-        });
+        return onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
       }, [ready]);
 
       const signIn = async () => {
-        const { auth, GoogleAuthProvider, signInWithPopup } = window.firebase;
         try {
+          const { auth, GoogleAuthProvider, signInWithPopup } = window.firebase;
           await signInWithPopup(auth, new GoogleAuthProvider());
-        } catch (error) {
-          alert('登录失败: ' + error.message);
+        } catch (e) {
+          alert('登录失败: ' + e.message);
         }
       };
 
       const signOutUser = async () => {
-        const { auth, signOut } = window.firebase;
-        await signOut(auth);
+        await window.firebase.signOut(window.firebase.auth);
       };
 
       return { user, loading, signIn, signOut: signOutUser, ready };
     };
 
-    // 数据管理
     const useData = (user) => {
       const [orders, setOrders] = useState([]);
       const [customers, setCustomers] = useState([]);
@@ -145,93 +133,71 @@
 
       const { db, collection, doc, setDoc, getDoc, onSnapshot } = window.firebase || {};
 
-      // 初始化年份
       useEffect(() => {
         if (!user || !db) return;
-
-        const initYear = async () => {
+        (async () => {
           try {
             const ref = doc(db, 'users', user.uid, 'data', 'yearlyData');
-            const snapshot = await getDoc(ref);
-            
+            const snap = await getDoc(ref);
             let data = {};
-            if (snapshot.exists()) {
-              data = snapshot.data();
+            if (snap.exists()) {
+              data = snap.data();
             } else {
-              const year = new Date().getFullYear();
-              data = { [year]: { settled: false } };
+              const y = new Date().getFullYear();
+              data = { [y]: { settled: false } };
               await setDoc(ref, data);
             }
-            
             setYearlyData(data);
             const years = Object.keys(data).sort((a, b) => b - a);
             const thisYear = new Date().getFullYear();
-            
             setCurrentYear(data[thisYear] ? thisYear : (years.length > 0 ? parseInt(years[0]) : thisYear));
-          } catch (error) {
-            console.error('初始化失败:', error);
+          } catch (e) {
+            console.error('初始化失败:', e);
           }
-        };
-
-        initYear();
+        })();
       }, [user, db]);
 
-      // 加载设置
       useEffect(() => {
         if (!user || !db) return;
-
-        const loadSettings = async () => {
+        (async () => {
           try {
             const ref = doc(db, 'users', user.uid, 'data', 'settings');
-            const snapshot = await getDoc(ref);
-            if (snapshot.exists()) {
-              setSettings(snapshot.data());
-            }
-          } catch (error) {
-            console.error('加载设置失败:', error);
-          }
-        };
-
-        loadSettings();
+            const snap = await getDoc(ref);
+            if (snap.exists()) setSettings(snap.data());
+          } catch (e) {}
+        })();
       }, [user, db]);
 
-      // 订单
       useEffect(() => {
         if (!user || !db || !currentYear) return;
-
         const ref = collection(db, 'users', user.uid, 'orders', String(currentYear), 'items');
-        return onSnapshot(ref, (snapshot) => {
+        return onSnapshot(ref, (snap) => {
           const data = [];
-          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          snap.forEach((d) => data.push({ id: d.id, ...d.data() }));
           setOrders(data);
         });
       }, [user, db, currentYear]);
 
-      // 客户
       useEffect(() => {
         if (!user || !db) return;
-
         const ref = collection(db, 'users', user.uid, 'customers');
-        return onSnapshot(ref, (snapshot) => {
+        return onSnapshot(ref, (snap) => {
           const data = [];
-          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          snap.forEach((d) => data.push({ id: d.id, ...d.data() }));
           setCustomers(data);
         });
       }, [user, db]);
 
-      // 产品
       useEffect(() => {
         if (!user || !db) return;
-
         const ref = collection(db, 'users', user.uid, 'products');
-        return onSnapshot(ref, (snapshot) => {
+        return onSnapshot(ref, (snap) => {
           const data = [];
-          snapshot.forEach((doc) => data.push({ id: doc.id, ...doc.data() }));
+          snap.forEach((d) => data.push({ id: d.id, ...d.data() }));
           setProducts(data);
         });
       }, [user, db]);
 
-      // 保存函数
       const saveOrder = async (order) => {
         if (!user || !currentYear) return;
         const id = order.id || `order_${Date.now()}`;
@@ -239,11 +205,10 @@
         await setDoc(ref, { ...order, id, updatedAt: new Date().toISOString() });
       };
 
-      const deleteOrder = async (orderId) => {
+      const deleteOrder = async (id) => {
         if (!user || !currentYear) return;
-        const { deleteDoc } = window.firebase;
-        const ref = doc(db, 'users', user.uid, 'orders', String(currentYear), 'items', orderId);
-        await deleteDoc(ref);
+        const ref = doc(db, 'users', user.uid, 'orders', String(currentYear), 'items', id);
+        await window.firebase.deleteDoc(ref);
       };
 
       const saveCustomer = async (customer) => {
@@ -253,11 +218,9 @@
         await setDoc(ref, { ...customer, id, updatedAt: new Date().toISOString() });
       };
 
-      const deleteCustomer = async (customerId) => {
+      const deleteCustomer = async (id) => {
         if (!user) return;
-        const { deleteDoc } = window.firebase;
-        const ref = doc(db, 'users', user.uid, 'customers', customerId);
-        await deleteDoc(ref);
+        await window.firebase.deleteDoc(doc(db, 'users', user.uid, 'customers', id));
       };
 
       const saveProduct = async (product) => {
@@ -267,24 +230,20 @@
         await setDoc(ref, { ...product, id, updatedAt: new Date().toISOString() });
       };
 
-      const deleteProduct = async (productId) => {
+      const deleteProduct = async (id) => {
         if (!user) return;
-        const { deleteDoc } = window.firebase;
-        const ref = doc(db, 'users', user.uid, 'products', productId);
-        await deleteDoc(ref);
+        await window.firebase.deleteDoc(doc(db, 'users', user.uid, 'products', id));
       };
 
       const saveYearlyData = async (data) => {
         if (!user) return;
-        const ref = doc(db, 'users', user.uid, 'data', 'yearlyData');
-        await setDoc(ref, data);
+        await setDoc(doc(db, 'users', user.uid, 'data', 'yearlyData'), data);
       };
 
-      const saveSettings = async (newSettings) => {
+      const saveSettings = async (s) => {
         if (!user) return;
-        const ref = doc(db, 'users', user.uid, 'data', 'settings');
-        await setDoc(ref, newSettings);
-        setSettings(newSettings);
+        await setDoc(doc(db, 'users', user.uid, 'data', 'settings'), s);
+        setSettings(s);
       };
 
       return {
@@ -294,7 +253,6 @@
       };
     };
 
-    // 登录页
     const LoginPage = ({ onSignIn }) => (
       <div className="login-container">
         <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
@@ -303,50 +261,53 @@
             <h1 className="text-3xl font-bold text-gray-800 mb-2">饼干订单管理</h1>
             <p className="text-gray-600">妈妈的手工饼干订单小助手</p>
           </div>
-          <button
-            onClick={onSignIn}
-            className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-50 flex items-center justify-center gap-3"
-          >
-            <span>🔐</span>
-            使用 Google 账号登录
+          <button onClick={onSignIn} className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-50 flex items-center justify-center gap-3">
+            <span>🔐</span>使用 Google 账号登录
           </button>
-          <p className="text-xs text-gray-500 text-center mt-6">
-            登录后，数据将安全保存在云端
-          </p>
         </div>
       </div>
     );
 
-    // 主应用 - 简化版（先确保能运行）
     const App = () => {
       const { user, loading, signIn, signOut, ready } = useAuth();
       const data = useData(user);
       
       const [activeTab, setActiveTab] = useState('orders');
       const [searchTerm, setSearchTerm] = useState('');
+      const [showOrderForm, setShowOrderForm] = useState(false);
+      const [showCustomerForm, setShowCustomerForm] = useState(false);
+      const [showProductForm, setShowProductForm] = useState(false);
+      const [editingOrder, setEditingOrder] = useState(null);
+      const [editingCustomer, setEditingCustomer] = useState(null);
+      const [editingProduct, setEditingProduct] = useState(null);
+      const [calendarDate, setCalendarDate] = useState(new Date());
+      const [showYearSelector, setShowYearSelector] = useState(false);
+
+      const [orderForm, setOrderForm] = useState({
+        customerName: '', customerPhone: '', products: [{ name: '', size: '', quantity: 1, price: 0 }],
+        totalAmount: 0, orderDate: new Date().toISOString().split('T')[0],
+        deliveryDate: '', status: 'pending', notes: '', deliveryAddress: ''
+      });
+
+      const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '', notes: '' });
+      const [productForm, setProductForm] = useState({ name: '', sizes: [{ name: '', price: 0 }], unit: '盒', description: '' });
 
       if (!ready || loading) {
         return (
           <div className="min-h-screen flex items-center justify-center bg-pink-50">
-            <div className="text-center">
-              <div className="text-6xl mb-4 animate-bounce">🍪</div>
-              <p className="text-gray-600">加载中...</p>
-            </div>
+            <div className="text-center"><div className="text-6xl mb-4 animate-bounce">🍪</div><p className="text-gray-600">加载中...</p></div>
           </div>
         );
       }
 
-      if (!user) {
-        return <LoginPage onSignIn={signIn} />;
-      }
+      if (!user) return <LoginPage onSignIn={signIn} />;
 
-      // 简单过滤 - 不使用 useMemo
-      const filteredOrders = data.orders.filter(order => {
+      const filteredOrders = data.orders.filter(o => {
         if (!searchTerm) return true;
         return (
-          order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          order.customerPhone?.includes(searchTerm) ||
-          order.id?.includes(searchTerm)
+          o.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          o.customerPhone?.includes(searchTerm) ||
+          o.id?.includes(searchTerm)
         );
       }).sort((a, b) => {
         if (!a.deliveryDate) return 1;
@@ -354,7 +315,6 @@
         return new Date(a.deliveryDate) - new Date(b.deliveryDate);
       });
 
-      // 统计
       const stats = {
         total: data.orders.length,
         pending: data.orders.filter(o => o.status === 'pending').length,
@@ -362,135 +322,650 @@
         revenue: data.orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.totalAmount || 0), 0)
       };
 
+      const addOrder = () => {
+        setEditingOrder(null);
+        setOrderForm({
+          customerName: '', customerPhone: '', products: [{ name: '', size: '', quantity: 1, price: 0 }],
+          totalAmount: 0, orderDate: new Date().toISOString().split('T')[0],
+          deliveryDate: '', status: 'pending', notes: '', deliveryAddress: ''
+        });
+        setShowOrderForm(true);
+      };
+
+      const editOrder = (order) => {
+        setEditingOrder(order);
+        setOrderForm(order);
+        setShowOrderForm(true);
+      };
+
+      const saveOrder = async () => {
+        if (!orderForm.customerName || !orderForm.customerPhone) {
+          alert('请填写客户姓名和电话');
+          return;
+        }
+        await data.saveOrder({ ...orderForm, id: editingOrder?.id, createdAt: editingOrder?.createdAt || new Date().toISOString() });
+        setShowOrderForm(false);
+        setEditingOrder(null);
+      };
+
+      const addCustomer = () => {
+        setEditingCustomer(null);
+        setCustomerForm({ name: '', phone: '', address: '', notes: '' });
+        setShowCustomerForm(true);
+      };
+
+      const editCustomer = (c) => {
+        setEditingCustomer(c);
+        setCustomerForm(c);
+        setShowCustomerForm(true);
+      };
+
+      const saveCustomer = async () => {
+        if (!customerForm.name || !customerForm.phone) {
+          alert('请填写客户姓名和电话');
+          return;
+        }
+        await data.saveCustomer({ ...customerForm, id: editingCustomer?.id, createdAt: editingCustomer?.createdAt || new Date().toISOString() });
+        setShowCustomerForm(false);
+        setEditingCustomer(null);
+      };
+
+      const addProduct = () => {
+        setEditingProduct(null);
+        setProductForm({ name: '', sizes: [{ name: '', price: 0 }], unit: '盒', description: '' });
+        setShowProductForm(true);
+      };
+
+      const editProduct = (p) => {
+        setEditingProduct(p);
+        setProductForm(p);
+        setShowProductForm(true);
+      };
+
+      const saveProduct = async () => {
+        if (!productForm.name || productForm.sizes.length === 0) {
+          alert('请填写产品名称和至少一个价格');
+          return;
+        }
+        await data.saveProduct({ ...productForm, id: editingProduct?.id, createdAt: editingProduct?.createdAt || new Date().toISOString() });
+        setShowProductForm(false);
+        setEditingProduct(null);
+      };
+
+      const updateOrderProduct = (idx, field, val) => {
+        const prods = [...orderForm.products];
+        prods[idx] = { ...prods[idx], [field]: val };
+        setOrderForm({ ...orderForm, products: prods });
+        const total = prods.reduce((s, p) => s + (p.price * p.quantity), 0);
+        setOrderForm(prev => ({ ...prev, totalAmount: total }));
+      };
+
+      const addOrderProduct = () => {
+        setOrderForm({ ...orderForm, products: [...orderForm.products, { name: '', size: '', quantity: 1, price: 0 }] });
+      };
+
+      const removeOrderProduct = (idx) => {
+        const prods = orderForm.products.filter((_, i) => i !== idx);
+        setOrderForm({ ...orderForm, products: prods });
+      };
+
+      const selectCustomerForOrder = (c) => {
+        setOrderForm({ ...orderForm, customerName: c.name, customerPhone: c.phone, deliveryAddress: c.address || '' });
+      };
+
+      const selectProductForOrder = (p, idx) => {
+        const prods = [...orderForm.products];
+        prods[idx] = { ...prods[idx], name: p.name, size: p.sizes[0]?.name || '', price: p.sizes[0]?.price || 0 };
+        setOrderForm({ ...orderForm, products: prods });
+      };
+
+      const updateProductPrice = (pidx, sizeName) => {
+        const p = data.products.find(pr => pr.name === orderForm.products[pidx].name);
+        if (p) {
+          const s = p.sizes.find(sz => sz.name === sizeName);
+          if (s) updateOrderProduct(pidx, 'price', s.price);
+        }
+      };
+
+      const addProductSize = () => {
+        setProductForm({ ...productForm, sizes: [...productForm.sizes, { name: '', price: 0 }] });
+      };
+
+      const removeProductSize = (idx) => {
+        setProductForm({ ...productForm, sizes: productForm.sizes.filter((_, i) => i !== idx) });
+      };
+
+      const updateProductSize = (idx, field, val) => {
+        const sizes = [...productForm.sizes];
+        sizes[idx] = { ...sizes[idx], [field]: val };
+        setProductForm({ ...productForm, sizes });
+      };
+
+      const getCalendarDays = () => {
+        const y = calendarDate.getFullYear();
+        const m = calendarDate.getMonth();
+        const firstDay = new Date(y, m, 1);
+        const lastDay = new Date(y, m + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        const startDay = firstDay.getDay();
+        const days = [];
+        for (let i = 0; i < startDay; i++) days.push(null);
+        for (let i = 1; i <= daysInMonth; i++) days.push(i);
+        return days;
+      };
+
+      const getOrdersForDate = (day) => {
+        if (!day) return [];
+        const dateStr = `${calendarDate.getFullYear()}-${String(calendarDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return data.orders.filter(o => o.deliveryDate === dateStr);
+      };
+
+      const changeMonth = (delta) => {
+        const newDate = new Date(calendarDate);
+        newDate.setMonth(newDate.getMonth() + delta);
+        setCalendarDate(newDate);
+      };
+
+      const createNewYear = async () => {
+        const year = prompt('请输入新年份（例如：2025）：');
+        if (year && !isNaN(year) && year.length === 4) {
+          const y = parseInt(year);
+          const newData = { ...data.yearlyData, [y]: { settled: false } };
+          await data.saveYearlyData(newData);
+          data.setYearlyData(newData);
+          data.setCurrentYear(y);
+          setShowYearSelector(false);
+        } else {
+          alert('请输入有效的年份');
+        }
+      };
+
+      const updateYearlyTarget = async () => {
+        const target = prompt('请输入年度营业额目标（元）：', data.settings.yearlyTarget || 0);
+        if (target !== null) {
+          await data.saveSettings({ ...data.settings, yearlyTarget: parseFloat(target) || 0 });
+        }
+      };
+
       return (
         <div className="min-h-screen bg-gray-50 pb-20">
-          {/* 顶部 */}
           <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-4 sticky top-0 z-10">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <span className="text-2xl">🍪</span>
-                <div>
-                  <h1 className="text-xl font-bold">饼干订单管理</h1>
-                  <p className="text-xs opacity-90">{user.email}</p>
-                </div>
+                <div><h1 className="text-xl font-bold">饼干订单管理</h1><p className="text-xs opacity-90">{user.email}</p></div>
               </div>
-              <button
-                onClick={signOut}
-                className="bg-white bg-opacity-20 p-2 rounded-lg"
-              >
-                <Icons.LogOut size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowYearSelector(!showYearSelector)} className="bg-white bg-opacity-20 px-3 py-2 rounded-lg text-sm font-medium">
+                  {data.currentYear}年
+                </button>
+                <button onClick={signOut} className="bg-white bg-opacity-20 p-2 rounded-lg"><Icons.LogOut size={20} /></button>
+              </div>
             </div>
           </div>
+
+          {showYearSelector && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg max-w-sm w-full p-4">
+                <h3 className="text-lg font-bold mb-4">选择年份</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto mb-4">
+                  {Object.keys(data.yearlyData).sort((a, b) => b - a).map(y => (
+                    <button key={y} onClick={() => { data.setCurrentYear(parseInt(y)); setShowYearSelector(false); }}
+                      className={`w-full p-3 rounded-lg text-left font-medium ${parseInt(y) === data.currentYear ? 'bg-pink-500 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                      {y}年
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowYearSelector(false)} className="flex-1 py-2 bg-gray-200 rounded-lg font-medium">取消</button>
+                  <button onClick={createNewYear} className="flex-1 py-2 bg-pink-500 text-white rounded-lg font-medium">新建年份</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="p-4">
-            {/* 统计卡片 */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-white p-4 rounded-lg shadow">
-                <div className="text-gray-600 text-sm mb-1">总订单</div>
-                <div className="text-2xl font-bold text-pink-600">{stats.total}</div>
-              </div>
-              <div className="bg-white p-4 rounded-lg shadow">
-                <div className="text-gray-600 text-sm mb-1">待处理</div>
-                <div className="text-2xl font-bold text-orange-600">{stats.pending}</div>
-              </div>
-              <div className="bg-white p-4 rounded-lg shadow">
-                <div className="text-gray-600 text-sm mb-1">已完成</div>
-                <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-              </div>
-              <div className="bg-white p-4 rounded-lg shadow">
-                <div className="text-gray-600 text-sm mb-1">营业额</div>
-                <div className="text-2xl font-bold text-blue-600">¥{stats.revenue.toFixed(2)}</div>
-              </div>
-            </div>
-
-            {/* 搜索 */}
-            <div className="mb-4">
-              <div className="relative">
-                <Icons.Search className="absolute left-3 top-3 text-gray-400" size={20} />
-                <input
-                  type="text"
-                  placeholder="搜索订单..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
-                />
-              </div>
-            </div>
-
-            {/* 订单列表 */}
-            <div className="space-y-3">
-              {filteredOrders.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Icons.Package size={48} className="mx-auto mb-2 opacity-50" />
-                  <p>还没有订单</p>
+            {activeTab === 'orders' && (
+              <div>
+                <div className="mb-4">
+                  <div className="relative">
+                    <Icons.Search className="absolute left-3 top-3 text-gray-400" size={20} />
+                    <input type="text" placeholder="搜索订单..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg" />
+                  </div>
                 </div>
-              ) : (
-                filteredOrders.map(order => (
-                  <div key={order.id} className="bg-white p-4 rounded-lg shadow">
+
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-white p-4 rounded-lg shadow">
+                    <div className="text-gray-600 text-sm mb-1">总订单</div>
+                    <div className="text-2xl font-bold text-pink-600">{stats.total}</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg shadow">
+                    <div className="text-gray-600 text-sm mb-1">待处理</div>
+                    <div className="text-2xl font-bold text-orange-600">{stats.pending}</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg shadow">
+                    <div className="text-gray-600 text-sm mb-1">已完成</div>
+                    <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg shadow">
+                    <div className="text-gray-600 text-sm mb-1">营业额</div>
+                    <div className="text-2xl font-bold text-blue-600">¥{stats.revenue.toFixed(2)}</div>
+                    {data.settings.yearlyTarget > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        目标: ¥{data.settings.yearlyTarget} ({((stats.revenue / data.settings.yearlyTarget) * 100).toFixed(1)}%)
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {filteredOrders.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <Icons.Package size={48} className="mx-auto mb-2 opacity-50" />
+                      <p>还没有订单</p>
+                    </div>
+                  ) : (
+                    filteredOrders.map(order => (
+                      <div key={order.id} className="bg-white p-4 rounded-lg shadow">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <div className="font-bold text-lg">{order.customerName}</div>
+                            <div className="text-sm text-gray-600">{order.customerPhone}</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => editOrder(order)} className="text-blue-600 p-1"><Icons.Edit size={18} /></button>
+                            <button onClick={() => confirm('确定删除?') && data.deleteOrder(order.id)} className="text-red-600 p-1"><Icons.Trash size={18} /></button>
+                          </div>
+                        </div>
+                        <div className="space-y-1 text-sm mb-2">
+                          {order.products?.map((p, i) => (
+                            <div key={i} className="text-gray-700">{p.name} ({p.size}) x {p.quantity} - ¥{(p.price * p.quantity).toFixed(2)}</div>
+                          ))}
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t">
+                          <div className="text-sm text-gray-600">交付: {order.deliveryDate || '未设置'}</div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs px-2 py-1 rounded ${
+                              order.status === 'pending' ? 'bg-orange-100 text-orange-700' :
+                              order.status === 'processing' ? 'bg-blue-100 text-blue-700' :
+                              order.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                            }`}>
+                              {order.status === 'pending' ? '待处理' : order.status === 'processing' ? '制作中' : order.status === 'completed' ? '已完成' : '已取消'}
+                            </span>
+                            <span className="font-bold text-pink-600">¥{order.totalAmount?.toFixed(2) || '0.00'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'calendar' && (
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="flex justify-between items-center mb-4">
+                  <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-100 rounded"><Icons.ChevronLeft size={24} /></button>
+                  <h2 className="text-xl font-bold">{calendarDate.getFullYear()}年 {calendarDate.getMonth() + 1}月</h2>
+                  <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded"><Icons.ChevronRight size={24} /></button>
+                </div>
+                <div className="calendar-grid mb-2">
+                  {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                    <div key={d} className="text-center text-sm font-medium text-gray-600 py-2">{d}</div>
+                  ))}
+                </div>
+                <div className="calendar-grid">
+                  {getCalendarDays().map((day, i) => {
+                    const orders = day ? getOrdersForDate(day) : [];
+                    return (
+                      <div key={i} className={`calendar-day border rounded p-1 ${day ? 'bg-white' : 'bg-gray-100'} ${orders.length > 0 ? 'border-pink-300' : 'border-gray-200'}`}>
+                        {day && (
+                          <>
+                            <div className="text-sm font-medium mb-1">{day}</div>
+                            {orders.length > 0 && (
+                              <div className="space-y-1">
+                                {orders.slice(0, 2).map((o, idx) => (
+                                  <div key={idx} className="text-xs bg-pink-100 text-pink-700 px-1 py-0.5 rounded truncate">{o.customerName}</div>
+                                ))}
+                                {orders.length > 2 && <div className="text-xs text-gray-600 px-1">+{orders.length - 2}</div>}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'customers' && (
+              <div>
+                <div className="space-y-3">
+                  {data.customers.map(c => (
+                    <div key={c.id} className="bg-white p-4 rounded-lg shadow">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="font-bold text-lg">{c.name}</div>
+                          <div className="text-sm text-gray-600">{c.phone}</div>
+                          {c.address && <div className="text-sm text-gray-600 mt-1">{c.address}</div>}
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => editCustomer(c)} className="text-blue-600 p-1"><Icons.Edit size={18} /></button>
+                          <button onClick={() => confirm('确定删除?') && data.deleteCustomer(c.id)} className="text-red-600 p-1"><Icons.Trash size={18} /></button>
+                        </div>
+                      </div>
+                      {c.notes && <div className="text-sm text-gray-600 mt-2 pt-2 border-t">备注: {c.notes}</div>}
+                    </div>
+                  ))}
+                </div>
+                {data.customers.length === 0 && (
+                  <div className="text-center py-12 text-gray-500"><Icons.Users size={48} className="mx-auto mb-2 opacity-50" /><p>还没有客户</p></div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'products' && (
+              <div className="space-y-3">
+                {data.products.map(p => (
+                  <div key={p.id} className="bg-white p-4 rounded-lg shadow">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex-1">
-                        <div className="font-bold text-lg">{order.customerName}</div>
-                        <div className="text-sm text-gray-600">{order.customerPhone}</div>
+                        <div className="font-bold text-lg">{p.name}</div>
+                        {p.description && <div className="text-sm text-gray-600 mt-1">{p.description}</div>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => editProduct(p)} className="text-blue-600 p-1"><Icons.Edit size={18} /></button>
+                        <button onClick={() => confirm('确定删除?') && data.deleteProduct(p.id)} className="text-red-600 p-1"><Icons.Trash size={18} /></button>
                       </div>
                     </div>
-                    <div className="space-y-1 text-sm mb-2">
-                      {order.products?.map((product, idx) => (
-                        <div key={idx} className="text-gray-700">
-                          {product.name} ({product.size}) x {product.quantity} - ¥{(product.price * product.quantity).toFixed(2)}
-                        </div>
+                    <div className="mt-2 space-y-1">
+                      {p.sizes.map((s, i) => (
+                        <div key={i} className="flex justify-between text-sm"><span>{s.name}</span><span className="font-medium text-pink-600">¥{s.price}</span></div>
                       ))}
                     </div>
-                    <div className="flex justify-between items-center pt-2 border-t">
-                      <div className="text-sm text-gray-600">
-                        交付: {order.deliveryDate || '未设置'}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          order.status === 'pending' ? 'bg-orange-100 text-orange-700' :
-                          order.status === 'completed' ? 'bg-green-100 text-green-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {order.status === 'pending' ? '待处理' :
-                           order.status === 'completed' ? '已完成' : '其他'}
-                        </span>
-                        <span className="font-bold text-pink-600">¥{order.totalAmount?.toFixed(2) || '0.00'}</span>
-                      </div>
-                    </div>
+                    {p.unit && <div className="text-xs text-gray-500 mt-2">单位: {p.unit}</div>}
                   </div>
-                ))
-              )}
+                ))}
+                {data.products.length === 0 && (
+                  <div className="text-center py-12 text-gray-500"><Icons.Package size={48} className="mx-auto mb-2 opacity-50" /><p>还没有产品</p></div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="space-y-4">
+                <div className="bg-white p-4 rounded-lg shadow">
+                  <h3 className="font-bold mb-3">年度设置</h3>
+                  <button onClick={updateYearlyTarget} className="w-full py-3 bg-pink-500 text-white rounded-lg font-medium">设置年度营业额目标</button>
+                  {data.settings.yearlyTarget > 0 && <div className="mt-2 text-sm text-gray-600">当前目标: ¥{data.settings.yearlyTarget}</div>}
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow">
+                  <h3 className="font-bold mb-3">账号信息</h3>
+                  <div className="text-sm flex justify-between"><span className="text-gray-600">邮箱:</span><span className="font-medium">{user.email}</span></div>
+                </div>
+                <div className="bg-white p-4 rounded-lg shadow">
+                  <h3 className="font-bold mb-3">数据同步</h3>
+                  <div className="flex items-center gap-2 text-green-600 text-sm"><Icons.Check size={16} /><span>云端同步已启用</span></div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t">
+            <div className="flex justify-around py-2">
+              {[
+                ['orders', Icons.Package, '订单'],
+                ['calendar', Icons.Calendar, '日历'],
+                ['customers', Icons.Users, '客户'],
+                ['products', Icons.Package, '产品'],
+                ['settings', Icons.Settings, '设置']
+              ].map(([tab, Icon, label]) => (
+                <button key={tab} onClick={() => setActiveTab(tab)}
+                  className={`flex flex-col items-center py-2 px-4 ${activeTab === tab ? 'text-pink-600' : 'text-gray-600'}`}>
+                  <Icon size={24} /><span className="text-xs mt-1">{label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* 底部导航 */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white border-t">
-            <div className="flex justify-around py-2">
-              <button
-                onClick={() => setActiveTab('orders')}
-                className={`flex flex-col items-center py-2 px-4 ${
-                  activeTab === 'orders' ? 'text-pink-600' : 'text-gray-600'
-                }`}
-              >
-                <Icons.Package size={24} />
-                <span className="text-xs mt-1">订单</span>
-              </button>
-              <button className="flex flex-col items-center py-2 px-4 text-gray-400">
-                <Icons.Users size={24} />
-                <span className="text-xs mt-1">客户</span>
-              </button>
-              <button className="flex flex-col items-center py-2 px-4 text-gray-400">
-                <Icons.Settings size={24} />
-                <span className="text-xs mt-1">设置</span>
-              </button>
+          {(activeTab === 'orders' || activeTab === 'customers' || activeTab === 'products') && (
+            <button onClick={() => activeTab === 'orders' ? addOrder() : activeTab === 'customers' ? addCustomer() : addProduct()}
+              className="fixed right-4 bottom-20 bg-pink-500 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center">
+              <Icons.Plus size={28} />
+            </button>
+          )}
+
+          {showOrderForm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50">
+              <div className="bg-white w-full sm:max-w-2xl sm:rounded-lg rounded-t-lg max-h-[90vh] overflow-y-auto">
+                <div className="sticky top-0 bg-white border-b px-4 py-3 flex justify-between items-center">
+                  <h2 className="text-xl font-bold">{editingOrder ? '编辑订单' : '新增订单'}</h2>
+                  <button onClick={() => setShowOrderForm(false)} className="text-gray-500"><Icons.X size={24} /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="bg-gray-50 p-3 rounded-lg">
+                    <div className="font-medium mb-2 flex justify-between items-center">
+                      <span>客户信息</span>
+                      {data.customers.length > 0 && (
+                        <select onChange={(e) => { const c = data.customers.find(cu => cu.id === e.target.value); if (c) selectCustomerForOrder(c); }}
+                          className="text-sm px-2 py-1 border rounded">
+                          <option value="">选择客户</option>
+                          {data.customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.phone}</option>)}
+                        </select>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <input type="text" placeholder="客户姓名 *" value={orderForm.customerName}
+                        onChange={(e) => setOrderForm({ ...orderForm, customerName: e.target.value })}
+                        className="w-full px-3 py-2 border rounded" />
+                      <input type="tel" placeholder="客户电话 *" value={orderForm.customerPhone}
+                        onChange={(e) => setOrderForm({ ...orderForm, customerPhone: e.target.value })}
+                        className="w-full px-3 py-2 border rounded" />
+                      <input type="text" placeholder="交付地址" value={orderForm.deliveryAddress}
+                        onChange={(e) => setOrderForm({ ...orderForm, deliveryAddress: e.target.value })}
+                        className="w-full px-3 py-2 border rounded" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="font-medium mb-2">产品明细</div>
+                    {orderForm.products.map((p, i) => (
+                      <div key={i} className="bg-gray-50 p-3 rounded-lg mb-2">
+                        <div className="flex justify-between mb-2">
+                          <span className="text-sm font-medium">产品 {i + 1}</span>
+                          {orderForm.products.length > 1 && (
+                            <button onClick={() => removeOrderProduct(i)} className="text-red-600 text-sm"><Icons.Trash size={16} /></button>
+                          )}
+                        </div>
+                        {data.products.length > 0 && (
+                          <select onChange={(e) => { const pr = data.products.find(pd => pd.id === e.target.value); if (pr) selectProductForOrder(pr, i); }}
+                            className="w-full px-3 py-2 border rounded mb-2 text-sm">
+                            <option value="">选择产品</option>
+                            {data.products.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                          </select>
+                        )}
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          <input type="text" placeholder="产品名称" value={p.name}
+                            onChange={(e) => updateOrderProduct(i, 'name', e.target.value)}
+                            className="px-3 py-2 border rounded text-sm" />
+                          <select value={p.size} onChange={(e) => { updateOrderProduct(i, 'size', e.target.value); updateProductPrice(i, e.target.value); }}
+                            className="px-3 py-2 border rounded text-sm">
+                            <option value="">选择大小</option>
+                            {p.name && data.products.find(pr => pr.name === p.name)?.sizes.map((s, idx) => <option key={idx} value={s.name}>{s.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <input type="number" placeholder="数量" value={p.quantity} min="1"
+                            onChange={(e) => updateOrderProduct(i, 'quantity', parseInt(e.target.value) || 1)}
+                            className="px-3 py-2 border rounded text-sm" />
+                          <input type="number" placeholder="单价" value={p.price} step="0.01"
+                            onChange={(e) => updateOrderProduct(i, 'price', parseFloat(e.target.value) || 0)}
+                            className="px-3 py-2 border rounded text-sm" />
+                          <div className="px-3 py-2 bg-white border rounded text-sm flex items-center justify-end font-medium">
+                            ¥{(p.price * p.quantity).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <button onClick={addOrderProduct} className="text-pink-600 text-sm font-medium flex items-center gap-1 mt-2">
+                      <Icons.Plus size={16} />添加产品
+                    </button>
+                  </div>
+
+                  <div className="bg-pink-50 p-3 rounded-lg flex justify-between items-center">
+                    <span className="font-bold">订单总额</span>
+                    <span className="text-2xl font-bold text-pink-600">¥{orderForm.totalAmount.toFixed(2)}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">下单日期</label>
+                      <input type="date" value={orderForm.orderDate}
+                        onChange={(e) => setOrderForm({ ...orderForm, orderDate: e.target.value })}
+                        className="w-full px-3 py-2 border rounded" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">交付日期</label>
+                      <input type="date" value={orderForm.deliveryDate}
+                        onChange={(e) => setOrderForm({ ...orderForm, deliveryDate: e.target.value })}
+                        className="w-full px-3 py-2 border rounded" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">订单状态</label>
+                    <select value={orderForm.status} onChange={(e) => setOrderForm({ ...orderForm, status: e.target.value })}
+                      className="w-full px-3 py-2 border rounded">
+                      <option value="pending">待处理</option>
+                      <option value="processing">制作中</option>
+                      <option value="completed">已完成</option>
+                      <option value="cancelled">已取消</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">备注</label>
+                    <textarea value={orderForm.notes} onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" rows="3" />
+                  </div>
+
+                  <div className="flex gap-2 pt-4">
+                    <button onClick={() => setShowOrderForm(false)} className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium">取消</button>
+                    <button onClick={saveOrder} className="flex-1 py-3 bg-pink-500 text-white rounded-lg font-medium">保存订单</button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {showCustomerForm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50">
+              <div className="bg-white w-full sm:max-w-lg sm:rounded-lg rounded-t-lg max-h-[90vh] overflow-y-auto">
+                <div className="sticky top-0 bg-white border-b px-4 py-3 flex justify-between items-center">
+                  <h2 className="text-xl font-bold">{editingCustomer ? '编辑客户' : '新增客户'}</h2>
+                  <button onClick={() => setShowCustomerForm(false)} className="text-gray-500"><Icons.X size={24} /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">客户姓名 *</label>
+                    <input type="text" value={customerForm.name}
+                      onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">电话 *</label>
+                    <input type="tel" value={customerForm.phone}
+                      onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">地址</label>
+                    <input type="text" value={customerForm.address}
+                      onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">备注</label>
+                    <textarea value={customerForm.notes}
+                      onChange={(e) => setCustomerForm({ ...customerForm, notes: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" rows="3" />
+                  </div>
+                  <div className="flex gap-2 pt-4">
+                    <button onClick={() => setShowCustomerForm(false)} className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium">取消</button>
+                    <button onClick={saveCustomer} className="flex-1 py-3 bg-pink-500 text-white rounded-lg font-medium">保存客户</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showProductForm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50">
+              <div className="bg-white w-full sm:max-w-lg sm:rounded-lg rounded-t-lg max-h-[90vh] overflow-y-auto">
+                <div className="sticky top-0 bg-white border-b px-4 py-3 flex justify-between items-center">
+                  <h2 className="text-xl font-bold">{editingProduct ? '编辑产品' : '新增产品'}</h2>
+                  <button onClick={() => setShowProductForm(false)} className="text-gray-500"><Icons.X size={24} /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">产品名称 *</label>
+                    <input type="text" value={productForm.name} placeholder="例如：巧克力曲奇"
+                      onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">大小和价格 *</label>
+                    {productForm.sizes.map((s, i) => (
+                      <div key={i} className="flex gap-2 mb-2">
+                        <input type="text" value={s.name} placeholder="大小名称"
+                          onChange={(e) => updateProductSize(i, 'name', e.target.value)}
+                          className="flex-1 px-3 py-2 border rounded" />
+                        <input type="number" value={s.price} step="0.01" placeholder="价格"
+                          onChange={(e) => updateProductSize(i, 'price', parseFloat(e.target.value) || 0)}
+                          className="w-24 px-3 py-2 border rounded" />
+                        {productForm.sizes.length > 1 && (
+                          <button onClick={() => removeProductSize(i)} className="p-2 text-red-600"><Icons.Trash size={20} /></button>
+                        )}
+                      </div>
+                    ))}
+                    <button onClick={addProductSize} className="text-pink-600 text-sm font-medium flex items-center gap-1">
+                      <Icons.Plus size={16} />添加大小选项
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">单位</label>
+                    <input type="text" value={productForm.unit} placeholder="盒/包/个"
+                      onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">描述</label>
+                    <textarea value={productForm.description} placeholder="产品描述或特色"
+                      onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                      className="w-full px-3 py-2 border rounded" rows="3" />
+                  </div>
+                  <div className="flex gap-2 pt-4">
+                    <button onClick={() => setShowProductForm(false)} className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium">取消</button>
+                    <button onClick={saveProduct} className="flex-1 py-3 bg-pink-500 text-white rounded-lg font-medium">保存产品</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     };
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+    }
   </script>
 </body>
 </html>
