@@ -290,7 +290,7 @@
       });
 
       const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '', notes: '' });
-      const [productForm, setProductForm] = useState({ name: '', sizes: [{ name: '', price: 0 }], unit: '盒', description: '' });
+      const [productForm, setProductForm] = useState({ name: '', sizes: [{ name: '', price: 0 }], unit: '罐', description: '' });
 
       if (!ready || loading) {
         return (
@@ -372,7 +372,11 @@
 
       const addProduct = () => {
         setEditingProduct(null);
-        setProductForm({ name: '', sizes: [{ name: '', price: 0 }], unit: '盒', description: '' });
+        setProductForm({ 
+          name: '', 
+          sizes: [{ name: '', price: 0 }], 
+          unit: '罐', 
+          description: '' });
         setShowProductForm(true);
       };
 
@@ -428,7 +432,10 @@
       };
 
       const addProductSize = () => {
-        setProductForm({ ...productForm, sizes: [...productForm.sizes, { name: '', price: 0 }] });
+        setProductForm({ 
+          ...productForm, 
+          sizes: [...productForm.sizes, { name: '', price: 0 }] 
+        });
       };
 
       const removeProductSize = (idx) => {
@@ -550,10 +557,10 @@
                   </div>
                   <div className="bg-white p-4 rounded-lg shadow">
                     <div className="text-gray-600 text-sm mb-1">营业额</div>
-                    <div className="text-2xl font-bold text-blue-600">¥{stats.revenue.toFixed(2)}</div>
+                    <div className="text-2xl font-bold text-blue-600">RM{stats.revenue.toFixed(2)}</div>
                     {data.settings.yearlyTarget > 0 && (
                       <div className="text-xs text-gray-500 mt-1">
-                        目标: ¥{data.settings.yearlyTarget} ({((stats.revenue / data.settings.yearlyTarget) * 100).toFixed(1)}%)
+                        目标: RM{data.settings.yearlyTarget} ({((stats.revenue / data.settings.yearlyTarget) * 100).toFixed(1)}%)
                       </div>
                     )}
                   </div>
@@ -580,7 +587,7 @@
                         </div>
                         <div className="space-y-1 text-sm mb-2">
                           {order.products?.map((p, i) => (
-                            <div key={i} className="text-gray-700">{p.name} ({p.size}) x {p.quantity} - ¥{(p.price * p.quantity).toFixed(2)}</div>
+                            <div key={i} className="text-gray-700">{p.name} ({p.size}) x {p.quantity} - RM{(p.price * p.quantity).toFixed(2)}</div>
                           ))}
                         </div>
                         <div className="flex justify-between items-center pt-2 border-t">
@@ -593,7 +600,7 @@
                             }`}>
                               {order.status === 'pending' ? '待处理' : order.status === 'processing' ? '制作中' : order.status === 'completed' ? '已完成' : '已取消'}
                             </span>
-                            <span className="font-bold text-pink-600">¥{order.totalAmount?.toFixed(2) || '0.00'}</span>
+                            <span className="font-bold text-pink-600">RM{order.totalAmount?.toFixed(2) || '0.00'}</span>
                           </div>
                         </div>
                       </div>
@@ -682,7 +689,7 @@
                     </div>
                     <div className="mt-2 space-y-1">
                       {p.sizes.map((s, i) => (
-                        <div key={i} className="flex justify-between text-sm"><span>{s.name}</span><span className="font-medium text-pink-600">¥{s.price}</span></div>
+                        <div key={i} className="flex justify-between text-sm"><span>{s.name}</span><span className="font-medium text-pink-600">RM{s.price}</span></div>
                       ))}
                     </div>
                     {p.unit && <div className="text-xs text-gray-500 mt-2">单位: {p.unit}</div>}
@@ -699,7 +706,7 @@
                 <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="font-bold mb-3">年度设置</h3>
                   <button onClick={updateYearlyTarget} className="w-full py-3 bg-pink-500 text-white rounded-lg font-medium">设置年度营业额目标</button>
-                  {data.settings.yearlyTarget > 0 && <div className="mt-2 text-sm text-gray-600">当前目标: ¥{data.settings.yearlyTarget}</div>}
+                  {data.settings.yearlyTarget > 0 && <div className="mt-2 text-sm text-gray-600">当前目标: RM{data.settings.yearlyTarget}</div>}
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow">
                   <h3 className="font-bold mb-3">账号信息</h3>
@@ -798,13 +805,16 @@
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <input type="number" placeholder="数量" value={p.quantity} min="1"
-                            onChange={(e) => updateOrderProduct(i, 'quantity', parseInt(e.target.value) || 1)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateOrderProduct(i, 'quantity', val === '' ? '' : parseInt(val));
+                            }}
                             className="px-3 py-2 border rounded text-sm" />
                           <input type="number" placeholder="单价" value={p.price} step="0.01"
                             onChange={(e) => updateOrderProduct(i, 'price', parseFloat(e.target.value) || 0)}
                             className="px-3 py-2 border rounded text-sm" />
                           <div className="px-3 py-2 bg-white border rounded text-sm flex items-center justify-end font-medium">
-                            ¥{(p.price * p.quantity).toFixed(2)}
+                            RM{(p.price * p.quantity).toFixed(2)}
                           </div>
                         </div>
                       </div>
@@ -816,7 +826,7 @@
 
                   <div className="bg-pink-50 p-3 rounded-lg flex justify-between items-center">
                     <span className="font-bold">订单总额</span>
-                    <span className="text-2xl font-bold text-pink-600">¥{orderForm.totalAmount.toFixed(2)}</span>
+                    <span className="text-2xl font-bold text-pink-600">RM{orderForm.totalAmount.toFixed(2)}</span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -922,9 +932,16 @@
                         <input type="text" value={s.name} placeholder="大小名称"
                           onChange={(e) => updateProductSize(i, 'name', e.target.value)}
                           className="flex-1 px-3 py-2 border rounded" />
-                        <input type="number" value={s.price} step="0.01" placeholder="价格"
-                          onChange={(e) => updateProductSize(i, 'price', parseFloat(e.target.value) || 0)}
-                          className="w-24 px-3 py-2 border rounded" />
+                        <input type="number"
+                          value={s.price}
+                          step="0.01"
+                          placeholder="价格"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateProductSize(i, 'price', val === '' ? '' : parseFloat(val));
+                          }}
+                          className="w-24 px-3 py-2 border rounded" 
+                        />
                         {productForm.sizes.length > 1 && (
                           <button onClick={() => removeProductSize(i)} className="p-2 text-red-600"><Icons.Trash size={20} /></button>
                         )}
@@ -936,7 +953,7 @@
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">单位</label>
-                    <input type="text" value={productForm.unit} placeholder="盒/包/个"
+                    <input type="text" value={productForm.unit} placeholder="罐/包/个"
                       onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })}
                       className="w-full px-3 py-2 border rounded" />
                   </div>
