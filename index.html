@@ -11,7 +11,10 @@
     body { margin: 0; padding: 0; overscroll-behavior-y: contain; }
     ::-webkit-scrollbar { width: 0px; background: transparent; }
     .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-    .calendar-day { aspect-ratio: 1; min-height: 60px; cursor: pointer; }
+    /* --- FIX 1 (Calendar Overflow) --- */
+    /* 移除 min-height: 60px; 让单元格在窄屏时可以正常缩小 */
+    .calendar-day { aspect-ratio: 1; cursor: pointer; } 
+    /* --- END FIX --- */
     .login-container {
       min-height: 100vh;
       display: flex;
@@ -106,7 +109,8 @@
           window.addEventListener('firebaseReady', h);
           return () => window.removeEventListener('firebaseReady', h);
         }
-      }, []);
+      }, [ready]);
+
       return ready;
     };
 
@@ -368,9 +372,9 @@
       if (!show) return null;
       
       return (
-        // --- FIX 2 (Z-index) ---
+        // FIX 2 (Z-index)
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-        {/* --- END FIX --- */}
+        {/* END FIX */}
           <div className="bg-white rounded-lg max-w-sm w-full p-6">
             <h3 className="text-lg font-bold mb-2">{title}</h3>
             <p className="text-gray-600 mb-6">{message}</p>
@@ -472,9 +476,9 @@
         processing: data.orders.filter(o => o.status === 'processing').length,
         completed: data.orders.filter(o => o.status === 'completed').length,
         delivered: data.orders.filter(o => o.status === 'delivered').length,
-        // --- FIX 5 (Revenue Stat) ---
+        // FIX 5 (Revenue Stat)
         revenue: data.orders.filter(o => o.status === 'delivered').reduce((sum, o) => sum + (o.totalAmount || 0), 0)
-        // --- END FIX ---
+        // END FIX
       };
 
       // 已交付产品统计
@@ -496,9 +500,9 @@
           customerName: '', customerPhone: '', products: [{ name: '', size: '', quantity: 1, price: 0 }],
           totalAmount: 0, orderDate: new Date().toISOString().split('T')[0],
           deliveryDate: '', status: 'pending', notes: '', deliveryAddress: '',
-          // --- FIX 3 (Customer Sync) ---
+          // FIX 3 (Customer Sync)
           customerId: null
-          // --- END FIX ---
+          // END FIX
         });
         setShowOrderForm(true);
       };
@@ -621,9 +625,9 @@
           customerName: c.name, 
           customerPhone: c.phone, 
           deliveryAddress: c.address || '',
-          // --- FIX 3 (Customer Sync) ---
+          // FIX 3 (Customer Sync)
           customerId: c.id
-          // --- END FIX ---
+          // END FIX
         });
       };
 
@@ -1002,7 +1006,7 @@
                             <button onClick={() => editOrder(order)} className="text-blue-600 p-1" disabled={order.status === 'delivered'}>
                               <Icons.Edit size={18} />
                             </button>
-                            {/* --- FIX 4 (Delete Order) --- */}
+                            {/* FIX 4 (Delete Order) */}
                             <button 
                               onClick={() => {
                                 if (order.status !== 'pending') {
@@ -1018,7 +1022,7 @@
                             >
                               <Icons.Trash size={18} />
                             </button>
-                            {/* --- END FIX --- */}
+                            {/* END FIX */}
                           </div>
                         </div>
                         <div className="space-y-1 text-sm mb-2">
@@ -1050,7 +1054,7 @@
                   <h2 className="text-xl font-bold">{calendarDate.getFullYear()}年 {calendarDate.getMonth() + 1}月</h2>
                   <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded"><Icons.ChevronRight size={24} /></button>
                 </div>
-                {/* --- FIX 1 (Calendar Align) --- */}
+                {/* FIX 1 (Calendar Align) */}
                 <div className="calendar-grid">
                   {/* 星期表头 */}
                   {['日', '一', '二', '三', '四', '五', '六'].map(d => (
@@ -1082,7 +1086,7 @@
                     );
                   })}
                 </div>
-                {/* --- END FIX --- */}
+                {/* END FIX */}
               </div>
             )}
 
@@ -1231,7 +1235,10 @@
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <input type="number" placeholder="数量" value={p.quantity} min="1"
-                            onChange={(e) => updateOrderProduct(i, 'quantity', parseInt(e.target.value) || 1)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateOrderProduct(i, 'quantity', val === '' ? '' : parseInt(val));
+                            }}
                             className="px-3 py-2 border rounded text-sm" />
                           <input type="number" placeholder="单价" value={p.price} step="0.01"
                             onChange={(e) => updateOrderProduct(i, 'price', parseFloat(e.target.value) || 0)}
@@ -1358,9 +1365,18 @@
                         <input type="text" value={s.name} placeholder="大小名称"
                           onChange={(e) => updateProductSize(i, 'name', e.target.value)}
                           className="flex-1 px-3 py-2 border rounded" />
-                        <input type="number" value={s.price} step="0.01" placeholder="价格"
-                          onChange={(e) => updateProductSize(i, 'price', parseFloat(e.target.value) || 0)}
-                          className="w-24 px-3 py-2 border rounded" />
+                        <input
+                          type="number"
+                          value={s.price}
+                          step="0.01"
+                          placeholder="价格"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateProductSize(i, 'price', val === '' ? '' : parseFloat(val));
+                          }}
+                          className="w-24 px-3 py-2 border rounded"
+                        />
+
                         {productForm.sizes.length > 1 && (
                           <button onClick={() => removeProductSize(i)} className="p-2 text-red-600"><Icons.Trash size={20} /></button>
 )}
@@ -1399,9 +1415,14 @@
   </script>
 
   <script>
+    // --- FIX 2 (Blank Page on Refresh) ---
+    // 暂时禁用 Service Worker 注册，以消除 Babel 脚本加载的竞争条件，修复刷新空白页问题
+    /*
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     }
+    */
+    // 请在浏览器的开发者工具中，手动取消注册旧的 Service Worker（如果存在）。
   </script>
 </body>
 </html>
