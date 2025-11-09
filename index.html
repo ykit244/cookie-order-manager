@@ -650,16 +650,22 @@
       const selectProductForOrder = (p, idx) => {
         const prods = [...orderForm.products];
         prods[idx] = { ...prods[idx], name: p.name, size: p.sizes[0]?.name || '', price: p.sizes[0]?.price || 0 };
-        setOrderForm({ ...orderForm, products: prods });
+        const total = prods.reduce((s, prod) => s + ((prod.price || 0) * (prod.quantity || 0)), 0);
+        setOrderForm({ ...orderForm, products: prods, totalAmount: total });
       };
 
       const updateProductPrice = (pidx, sizeName) => {
+        if (!sizeName) return; // 如果没有选择大小，不做任何操作
+        
         const p = data.products.find(pr => pr.name === orderForm.products[pidx].name);
         if (p) {
           const s = p.sizes.find(sz => sz.name === sizeName);
           if (s) {
-            // 更新价格
-            updateOrderProduct(pidx, 'price', s.price);
+            // 同时更新大小和价格
+            const prods = [...orderForm.products];
+            prods[pidx] = { ...prods[pidx], size: sizeName, price: s.price };
+            const total = prods.reduce((sum, prod) => sum + ((prod.price || 0) * (prod.quantity || 0)), 0);
+            setOrderForm({ ...orderForm, products: prods, totalAmount: total });
           }
         }
       };
@@ -1248,9 +1254,7 @@
                             className="px-3 py-2 border rounded text-sm" />
                           <select value={p.size} 
                             onChange={(e) => { 
-                              const newSize = e.target.value;
-                              updateOrderProduct(i, 'size', newSize); 
-                              updateProductPrice(i, newSize); 
+                              updateProductPrice(i, e.target.value); 
                             }}
                             className="px-3 py-2 border rounded text-sm">
                             <option value="">选择大小</option>
