@@ -10,10 +10,26 @@
   <style>
     body { margin: 0; padding: 0; overscroll-behavior-y: contain; }
     ::-webkit-scrollbar { width: 0px; background: transparent; }
-    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .calendar-grid { 
+      display: grid; 
+      grid-template-columns: repeat(7, 1fr); 
+      gap: 4px; 
+    }
     /* --- FIX 1 (Calendar Overflow) --- */
-    /* 移除 min-height: 60px; 让单元格在窄屏时可以正常缩小 */
-    .calendar-day { aspect-ratio: 1; cursor: pointer; } 
+    /* 确保日历单元格不会溢出并正确处理内容 */
+    .calendar-day { 
+      aspect-ratio: 1; 
+      cursor: pointer;
+      overflow: hidden; /* 防止内容溢出 */
+      display: flex;
+      flex-direction: column;
+    }
+    /* 客户名字使用 text-overflow: ellipsis */
+    .calendar-order-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     /* --- END FIX --- */
     .login-container {
       min-height: 100vh;
@@ -605,9 +621,8 @@
       const updateOrderProduct = (idx, field, val) => {
         const prods = [...orderForm.products];
         prods[idx] = { ...prods[idx], [field]: val };
-        setOrderForm({ ...orderForm, products: prods });
-        const total = prods.reduce((s, p) => s + (p.price * p.quantity), 0);
-        setOrderForm(prev => ({ ...prev, totalAmount: total }));
+        const total = prods.reduce((s, p) => s + ((p.price || 0) * (p.quantity || 0)), 0);
+        setOrderForm({ ...orderForm, products: prods, totalAmount: total });
       };
 
       const addOrderProduct = () => {
@@ -616,7 +631,8 @@
 
       const removeOrderProduct = (idx) => {
         const prods = orderForm.products.filter((_, i) => i !== idx);
-        setOrderForm({ ...orderForm, products: prods });
+        const total = prods.reduce((s, p) => s + ((p.price || 0) * (p.quantity || 0)), 0);
+        setOrderForm({ ...orderForm, products: prods, totalAmount: total });
       };
 
       const selectCustomerForOrder = (c) => {
@@ -641,7 +657,10 @@
         const p = data.products.find(pr => pr.name === orderForm.products[pidx].name);
         if (p) {
           const s = p.sizes.find(sz => sz.name === sizeName);
-          if (s) updateOrderProduct(pidx, 'price', s.price);
+          if (s) {
+            // 更新价格
+            updateOrderProduct(pidx, 'price', s.price);
+          }
         }
       };
 
@@ -1071,9 +1090,9 @@
                           <>
                             <div className="text-sm font-medium mb-1">{day}</div>
                             {orders.length > 0 && (
-                              <div className="space-y-1">
+                              <div className="space-y-1 flex-1 overflow-hidden">
                                 {orders.slice(0, 2).map((o, idx) => (
-                                  <div key={idx} className="text-xs bg-pink-100 text-pink-700 px-1 py-0.5 rounded truncate cursor-pointer">
+                                  <div key={idx} className="text-xs bg-pink-100 text-pink-700 px-1 py-0.5 rounded cursor-pointer calendar-order-name">
                                     {o.customerName}
                                   </div>
                                 ))}
@@ -1227,7 +1246,12 @@
                           <input type="text" placeholder="产品名称" value={p.name}
                             onChange={(e) => updateOrderProduct(i, 'name', e.target.value)}
                             className="px-3 py-2 border rounded text-sm" />
-                          <select value={p.size} onChange={(e) => { updateOrderProduct(i, 'size', e.target.value); updateProductPrice(i, e.target.value); }}
+                          <select value={p.size} 
+                            onChange={(e) => { 
+                              const newSize = e.target.value;
+                              updateOrderProduct(i, 'size', newSize); 
+                              updateProductPrice(i, newSize); 
+                            }}
                             className="px-3 py-2 border rounded text-sm">
                             <option value="">选择大小</option>
                             {p.name && data.products.find(pr => pr.name === p.name)?.sizes.map((s, idx) => <option key={idx} value={s.name}>{s.name}</option>)}
