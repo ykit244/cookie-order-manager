@@ -67,3 +67,8 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+index_v1.html
+index_v2.html
+index_v3.html
+index_backup.html
+index_localStorage.html
